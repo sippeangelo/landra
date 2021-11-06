@@ -258,6 +258,18 @@ class EventsHandler {
         return types
     }
 
+    async getChannelByType(guild, type) {
+        const channel = await this.Channels.findOne({
+            attributes: ['channel_id'],
+            where: {
+                guild_id: guild.id,
+                type: type
+            }
+        })
+
+        return channel?.channel_id
+    }
+
 
     async getAllChannels() {
         // Gets everything in the Channels table
@@ -266,6 +278,20 @@ class EventsHandler {
         });
 
         return channels
+    }
+
+    async getAllGuildsWithEvents() {
+        const unique_ids = new Set();
+
+        const guilds = await this.Events.findAll({
+            attributes: ['guild_id']
+        })
+
+        for (const entry of guilds) {
+            unique_ids.add(entry.guild_id)
+        }
+
+        return unique_ids.values()
     }
 
 

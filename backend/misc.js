@@ -159,35 +159,38 @@ async function postEventNotifications(client) {
     // Init events handler
     const events_handler = new EventsHandler();
 
-    const all_channels = await events_handler.getAllChannels()
+    const all_guilds = await events_handler.getAllGuildsWithEvents()
 
     // Loop over channel and handle each
-    for (entry of all_channels) {
+    for (guild_id of all_guilds) {
         // Init
-        const guild   = await client.guilds.fetch(entry.guild_id)
+        const guild   = await client.guilds.fetch(guild_id)
             .catch(error => { console.error(error); return; });
-        const channel = await guild.channels.fetch(entry.channel_id)
-            .catch(async error => {
-                if (error.code === 10003 /* Unknown channel */) {
-                    await events_handler.removeChannelType(
-                        { 
-                            id: entry.channel_id,
-                            guild: { id: entry.guild_id }
-                        },
-                        "notifications"
-                    )
-                }
 
-                else {
-                    console.error(error)
-                }
+        const channel_id = await events_handler.getChannelByType(guild, "notifications");
+        
+        const channel = channel_id
+            ? await guild.channels.fetch(channel_id)
+                .catch(async error => {
+                    if (error.code === 10003 /* Unknown channel */) {
+                        await events_handler.removeChannelType(
+                            { 
+                                id: entry.channel_id,
+                                guild: { id: entry.guild_id }
+                            },
+                            "notifications"
+                        )
+                    }
 
-                return;
-            });
-        const now     = new Date()
+                    else {
+                        console.error(error)
+                    }
 
-        // Check if channel is for event notifications
-        if (entry.type != "notifications") continue;
+                    return;
+                })
+            : null;
+
+        const now = new Date()
 
         // In 1 minute
         const in_a_minute = new Date()
@@ -200,39 +203,43 @@ async function postEventNotifications(client) {
             const message_data = await generateNotification(entry, guild, 0);
 
             // Send message
-            await channel.send(message_data)
-                .then(msg => {
-                    setTimeout(() => msg.delete().catch(console.error), 5 * 60 * 1000);
-                })
-                .catch(async error => {
-                    await sendErrorHandler(error, guild, channel);
-                });
+            if (channel) {
+                await channel.send(message_data)
+                    .then(msg => {
+                        setTimeout(() => msg.delete().catch(console.error), 5 * 60 * 1000);
+                    })
+                    .catch(async error => {
+                        await sendErrorHandler(error, guild, channel);
+                    });
+            }
 
             // Handle deleting or updating event
             await events_handler.handleEventNotification(entry.event_id)
         }
+        
+        if (channel) {
+            // In 1 hour
+            const now_after_hour = new Date()
+            now_after_hour.setHours(now_after_hour.getHours() + 1)
 
-        // In 1 hour
-        const now_after_hour = new Date()
-        now_after_hour.setHours(now_after_hour.getHours() + 1)
+            const now_after_hour_minute = new Date(now_after_hour)
+            now_after_hour_minute.setMinutes(now_after_hour.getMinutes() + 1)
 
-        const now_after_hour_minute = new Date(now_after_hour)
-        now_after_hour_minute.setMinutes(now_after_hour.getMinutes() + 1)
+            const events_in_hour = await events_handler.getEventsBetween(guild, now_after_hour, now_after_hour_minute);
 
-        const events_in_hour = await events_handler.getEventsBetween(guild, now_after_hour, now_after_hour_minute);
+            // Generate and send notifications
+            for (entry of events_in_hour) {
+                const message_data = await generateNotification(entry, guild, 1);
 
-        // Generate and send notifications
-        for (entry of events_in_hour) {
-            const message_data = await generateNotification(entry, guild, 1);
-
-            // Send message
-            await channel.send(message_data)
-                .then(msg => {
-                    setTimeout(() => msg.delete().catch(console.error), 60 * 60 * 1000);
-                })
-                .catch(async error => {
-                    await sendErrorHandler(error, guild, channel);
-                });
+                // Send message
+                await channel.send(message_data)
+                    .then(msg => {
+                        setTimeout(() => msg.delete().catch(console.error), 60 * 60 * 1000);
+                    })
+                    .catch(async error => {
+                        await sendErrorHandler(error, guild, channel);
+                    });
+            }
         }
     }
 }
